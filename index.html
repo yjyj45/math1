@@ -236,8 +236,39 @@ h2 { margin-top: 0; text-wrap: balance; }
 }
 .stage-btn:hover { border-color: var(--primary); background: var(--surface-alt-hover); }
 .stage-btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
-.stage-num { font-weight: 800; color: var(--primary-dark); }
+.stage-btn.done { border-color: var(--ok); }
+.stage-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.stage-btn:disabled:hover { border-color: var(--border); background: var(--surface-alt); }
+.stage-num { font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 6px; }
 .stage-sub { font-size: 0.85rem; color: var(--ink); line-height: 1.35; }
+.stage-lock-note { font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-top: 2px; }
+
+/* 에너지바(단계 도달 표시) */
+.energy-bar-wrap { padding: 0 4px 16px; }
+.energy-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.energy-count { color: var(--primary-dark); font-variant-numeric: tabular-nums; }
+.energy-bar { display: flex; gap: 6px; }
+.energy-seg {
+  flex: 1;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--progress-bg);
+  border: 1px solid var(--border);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.energy-seg.done {
+  background: linear-gradient(90deg, var(--ok), var(--primary));
+  border-color: transparent;
+}
+.energy-seg.current { box-shadow: 0 0 0 2px var(--secondary); }
 
 .problem-header {
   display: flex;
@@ -435,6 +466,7 @@ h2 { margin-top: 0; text-wrap: balance; }
       <div class="brand">🍰 분수의 덧셈과 뺄셈 도전!</div>
       <div id="studentBadge" class="student-badge" hidden></div>
     </header>
+    <div id="energyBarWrap"></div>
     <main id="main"></main>
     <footer id="appFooter">4학년 2학기 수학 1단원 · 분수의 덧셈과 뺄셈</footer>
   </div>
@@ -924,10 +956,12 @@ const state = {
   current: 0,
   round: 1, // 1차, 2차(재도전)...
   firstPassScore: null,
+  completedStages: new Set(), // 학생이 도달(완료)한 단계 id 집합
 };
 
 const mainEl = () => document.getElementById('main');
 const badgeEl = () => document.getElementById('studentBadge');
+const energyBarEl = () => document.getElementById('energyBarWrap');
 
 function updateBadge() {
   const b = badgeEl();
@@ -939,16 +973,78 @@ function updateBadge() {
   }
 }
 
+/* ---------------- 단계 진행도(에너지바) ---------------- */
+function progressKey(num) { return 'fraction_app_progress_' + num; }
+
+function loadCompletedStages(num) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(progressKey(num)) || '[]');
+    return new Set(raw);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveCompletedStages() {
+  if (!state.studentNumber) return;
+  try {
+    localStorage.setItem(progressKey(state.studentNumber), JSON.stringify([...state.completedStages]));
+  } catch (e) {}
+}
+
+function setStudentNumber(num) {
+  state.studentNumber = num;
+  try { localStorage.setItem('fraction_app_student', num); } catch (e) {}
+  state.completedStages = loadCompletedStages(num);
+}
+
+function isStageUnlocked(stageId) {
+  if (stageId === STAGES[0].id) return true;
+  const idx = STAGES.findIndex(s => s.id === stageId);
+  if (idx <= 0) return true;
+  return state.completedStages.has(STAGES[idx - 1].id);
+}
+
+function markStageReached(stageId) {
+  if (state.completedStages.has(stageId)) return;
+  state.completedStages.add(stageId);
+  saveCompletedStages();
+}
+
+function renderEnergyBar(currentStageId) {
+  const segs = STAGES.map(s => {
+    const done = state.completedStages.has(s.id);
+    const isCurrent = currentStageId === s.id;
+    let cls = 'energy-seg';
+    if (done) cls += ' done';
+    if (isCurrent) cls += ' current';
+    return `<div class="${cls}" title="${escapeHtml(s.title)}${done ? ' 도달 완료' : ' 미도달'}"></div>`;
+  }).join('');
+  return `
+    <div class="energy-bar-wrap">
+      <div class="energy-label"><span>단계 도달 현황</span><span class="energy-count">${state.completedStages.size} / ${STAGES.length}단계</span></div>
+      <div class="energy-bar">${segs}</div>
+    </div>
+  `;
+}
+
+function updateEnergyBar(currentStageId) {
+  const el = energyBarEl();
+  if (!el) return;
+  el.innerHTML = state.studentNumber ? renderEnergyBar(currentStageId) : '';
+}
+
 function init() {
   try {
     const saved = localStorage.getItem('fraction_app_student');
-    if (saved) state.studentNumber = saved;
+    if (saved) setStudentNumber(saved);
   } catch (e) {}
   renderStart();
 }
 
 function renderStart() {
   updateBadge();
+  updateEnergyBar(null);
   mainEl().innerHTML = `
     <section class="card start-card">
       <h1>분수의 덧셈과 뺄셈 <span class="accent">단계별 복습</span></h1>
@@ -962,8 +1058,7 @@ function renderStart() {
   document.getElementById('startBtn').addEventListener('click', () => {
     const val = document.getElementById('studentNumInput').value.trim();
     if (!val) { document.getElementById('startError').hidden = false; return; }
-    state.studentNumber = val;
-    try { localStorage.setItem('fraction_app_student', val); } catch (e) {}
+    setStudentNumber(val);
     renderStageSelect();
   });
   document.getElementById('studentNumInput').addEventListener('keydown', (e) => {
@@ -973,22 +1068,31 @@ function renderStart() {
 
 function renderStageSelect() {
   updateBadge();
-  const cards = STAGES.map(s => `
-    <button class="stage-btn" data-stage="${s.id}">
-      <span class="stage-num">${s.title}</span>
+  updateEnergyBar(null);
+  const cards = STAGES.map(s => {
+    const unlocked = isStageUnlocked(s.id);
+    const done = state.completedStages.has(s.id);
+    return `
+    <button class="stage-btn${done ? ' done' : ''}" data-stage="${s.id}" ${unlocked ? '' : 'disabled aria-disabled="true"'}>
+      <span class="stage-num">${s.title} ${done ? '✅' : (unlocked ? '' : '🔒')}</span>
       <span class="stage-sub">${s.subtitle}</span>
+      ${unlocked ? '' : '<span class="stage-lock-note">이전 단계를 먼저 완료해 보세요</span>'}
     </button>
-  `).join('');
+  `;
+  }).join('');
   mainEl().innerHTML = `
     <section class="card">
       <h2>단계를 선택하세요</h2>
+      <p class="muted">1단계부터 순서대로 도전하면 다음 단계가 열려요!</p>
       <div class="stage-grid">${cards}</div>
       <button id="changeNumBtn" class="btn btn-ghost">번호 다시 입력</button>
     </section>
   `;
   document.querySelectorAll('.stage-btn').forEach(btn => {
+    if (btn.disabled) return;
     btn.addEventListener('click', () => {
       const stage = STAGES.find(s => s.id === Number(btn.dataset.stage));
+      if (!isStageUnlocked(stage.id)) return;
       startStage(stage);
     });
   });
@@ -999,6 +1103,7 @@ function renderStageSelect() {
 }
 
 function startStage(stage) {
+  if (!isStageUnlocked(stage.id)) return;
   state.stage = stage;
   state.problems = buildStageProblemSet(stage);
   state.results = new Array(state.problems.length).fill(null);
@@ -1016,6 +1121,7 @@ function categoryLabel(cat) {
 
 function renderProblem() {
   updateBadge();
+  updateEnergyBar(state.stage.id);
   const p = state.problems[state.current];
   const total = state.problems.length;
   mainEl().innerHTML = `
@@ -1120,6 +1226,8 @@ function renderResult() {
   const total = state.problems.length;
   const correctCount = state.results.filter(r => r === true).length;
   if (state.round === 1) state.firstPassScore = correctCount;
+  markStageReached(state.stage.id);
+  updateEnergyBar(state.stage.id);
 
   const rows = state.problems.map((p, i) => `
     <li class="result-row ${state.results[i] ? 'ok' : 'no'}">
