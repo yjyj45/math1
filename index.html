@@ -270,6 +270,28 @@ h2 { margin-top: 0; text-wrap: balance; }
 }
 .energy-seg.current { box-shadow: 0 0 0 2px var(--secondary); }
 
+/* 시작 화면 - 미니 진행 현황 미리보기 */
+.mini-progress { margin: 2px 0 18px; }
+.mini-progress-label { font-size: 0.82rem; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.mini-progress-row { display: flex; gap: 6px; }
+.mini-stage {
+  flex: 1;
+  height: 42px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: var(--surface-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+.mini-stage.done { border-color: var(--ok); background: var(--ok-bg); color: var(--ok-ink); }
+.mini-stage.next { border-color: var(--primary); color: var(--primary-dark); background: var(--surface-alt-hover); }
+.mini-stage.locked { opacity: 0.55; }
+.mini-progress-empty { font-size: 0.85rem; color: var(--muted); margin: 2px 0 18px; }
+
 .problem-header {
   display: flex;
   justify-content: space-between;
@@ -998,11 +1020,11 @@ function setStudentNumber(num) {
   state.completedStages = loadCompletedStages(num);
 }
 
-function isStageUnlocked(stageId) {
-  if (stageId === STAGES[0].id) return true;
+function isStageUnlocked(stageId, completedSet) {
+  const set = completedSet || state.completedStages;
   const idx = STAGES.findIndex(s => s.id === stageId);
   if (idx <= 0) return true;
-  return state.completedStages.has(STAGES[idx - 1].id);
+  return set.has(STAGES[idx - 1].id);
 }
 
 function markStageReached(stageId) {
@@ -1034,6 +1056,26 @@ function updateEnergyBar(currentStageId) {
   el.innerHTML = state.studentNumber ? renderEnergyBar(currentStageId) : '';
 }
 
+function progressPreviewHtml(num) {
+  if (!num) {
+    return `<p class="mini-progress-empty">번호를 입력하면 지금까지 깬 단계를 보여드려요.</p>`;
+  }
+  const set = loadCompletedStages(num);
+  const badges = STAGES.map(s => {
+    const done = set.has(s.id);
+    const unlocked = isStageUnlocked(s.id, set);
+    const cls = 'mini-stage' + (done ? ' done' : (unlocked ? ' next' : ' locked'));
+    const icon = done ? '✅' : (unlocked ? String(s.id) : '🔒');
+    return `<div class="${cls}" title="${escapeHtml(s.title)}${done ? ' 완료' : ''}">${icon}</div>`;
+  }).join('');
+  return `
+    <div class="mini-progress">
+      <div class="mini-progress-label">번호 ${escapeHtml(num)}님의 진행 현황 · ${set.size} / ${STAGES.length}단계 완료</div>
+      <div class="mini-progress-row">${badges}</div>
+    </div>
+  `;
+}
+
 function init() {
   try {
     const saved = localStorage.getItem('fraction_app_student');
@@ -1051,17 +1093,22 @@ function renderStart() {
       <p class="muted">번호를 입력하고 시작해요. 6단계를 차례로 복습하며 실력을 키워 보세요!</p>
       <label class="field-label" for="studentNumInput">내 번호</label>
       <input id="studentNumInput" type="text" inputmode="numeric" placeholder="예: 12" value="${state.studentNumber ? escapeHtml(state.studentNumber) : ''}" class="text-input" />
+      <div id="startProgress">${progressPreviewHtml(state.studentNumber)}</div>
       <button id="startBtn" class="btn btn-primary">시작하기</button>
       <p id="startError" class="error-text" hidden>번호를 입력해 주세요.</p>
     </section>
   `;
+  const numInput = document.getElementById('studentNumInput');
+  numInput.addEventListener('input', () => {
+    document.getElementById('startProgress').innerHTML = progressPreviewHtml(numInput.value.trim());
+  });
   document.getElementById('startBtn').addEventListener('click', () => {
-    const val = document.getElementById('studentNumInput').value.trim();
+    const val = numInput.value.trim();
     if (!val) { document.getElementById('startError').hidden = false; return; }
     setStudentNumber(val);
     renderStageSelect();
   });
-  document.getElementById('studentNumInput').addEventListener('keydown', (e) => {
+  numInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('startBtn').click();
   });
 }
