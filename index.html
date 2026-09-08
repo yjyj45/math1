@@ -273,23 +273,23 @@ h2 { margin-top: 0; text-wrap: balance; }
 /* 시작 화면 - 미니 진행 현황 미리보기 */
 .mini-progress { margin: 2px 0 18px; }
 .mini-progress-label { font-size: 0.82rem; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
-.mini-progress-row { display: flex; gap: 6px; }
-.mini-stage {
-  flex: 1;
-  height: 42px;
+.mini-stage-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.mini-stage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
   border-radius: 10px;
   border: 2px solid var(--border);
   background: var(--surface-alt);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.95rem;
-  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--ink);
 }
-.mini-stage.done { border-color: var(--ok); background: var(--ok-bg); color: var(--ok-ink); }
-.mini-stage.next { border-color: var(--primary); color: var(--primary-dark); background: var(--surface-alt-hover); }
-.mini-stage.locked { opacity: 0.55; }
+.mini-stage-icon { flex: none; font-size: 1rem; }
+.mini-stage-item.done { border-color: var(--ok); background: var(--ok-bg); color: var(--ok-ink); }
+.mini-stage-item.next { border-color: var(--primary); background: var(--surface-alt-hover); color: var(--primary-dark); }
+.mini-stage-item.locked { opacity: 0.55; }
 .mini-progress-empty { font-size: 0.85rem; color: var(--muted); margin: 2px 0 18px; }
 
 .problem-header {
@@ -1061,17 +1061,17 @@ function progressPreviewHtml(num) {
     return `<p class="mini-progress-empty">번호를 입력하면 지금까지 깬 단계를 보여드려요.</p>`;
   }
   const set = loadCompletedStages(num);
-  const badges = STAGES.map(s => {
+  const items = STAGES.map(s => {
     const done = set.has(s.id);
     const unlocked = isStageUnlocked(s.id, set);
-    const cls = 'mini-stage' + (done ? ' done' : (unlocked ? ' next' : ' locked'));
-    const icon = done ? '✅' : (unlocked ? String(s.id) : '🔒');
-    return `<div class="${cls}" title="${escapeHtml(s.title)}${done ? ' 완료' : ''}">${icon}</div>`;
+    const cls = 'mini-stage-item' + (done ? ' done' : (unlocked ? ' next' : ' locked'));
+    const icon = done ? '✅' : (unlocked ? '▶️' : '🔒');
+    return `<li class="${cls}"><span class="mini-stage-icon">${icon}</span><span>${escapeHtml(s.title)}: ${escapeHtml(s.subtitle)}</span></li>`;
   }).join('');
   return `
     <div class="mini-progress">
       <div class="mini-progress-label">번호 ${escapeHtml(num)}님의 진행 현황 · ${set.size} / ${STAGES.length}단계 완료</div>
-      <div class="mini-progress-row">${badges}</div>
+      <ul class="mini-stage-list">${items}</ul>
     </div>
   `;
 }
@@ -1273,7 +1273,9 @@ function renderResult() {
   const total = state.problems.length;
   const correctCount = state.results.filter(r => r === true).length;
   if (state.round === 1) state.firstPassScore = correctCount;
-  markStageReached(state.stage.id);
+  const wrongCount = total - correctCount;
+  const cleared = wrongCount === 0;
+  if (cleared) markStageReached(state.stage.id);
   updateEnergyBar(state.stage.id);
 
   const rows = state.problems.map((p, i) => `
@@ -1284,7 +1286,6 @@ function renderResult() {
     </li>
   `).join('');
 
-  const wrongCount = total - correctCount;
   const roundLabel = state.round === 1 ? '1차 시도' : `재도전 ${state.round - 1}회차`;
 
   mainEl().innerHTML = `
@@ -1293,9 +1294,9 @@ function renderResult() {
       <p class="score-line">${correctCount} / ${total} 문제 정답!</p>
       <ul class="result-list">${rows}</ul>
       <div id="sheetStatus" class="sheet-status">구글 시트에 결과를 저장하는 중...</div>
+      ${!cleared ? `<p class="mini-progress-empty">틀린 문제를 모두 맞혀야 다음 단계로 넘어갈 수 있어요. 틀린 문제를 마저 풀어 보세요!</p>` : ''}
       <div class="actions actions-col">
-        ${wrongCount > 0 ? `<button id="retryBtn" class="btn btn-primary">틀린 문제 유형 다시 풀기 (${wrongCount}문제)</button>` : ''}
-        <button id="backStageBtn" class="btn btn-secondary">단계 선택으로</button>
+        ${!cleared ? `<button id="retryBtn" class="btn btn-primary">틀린 문제 마저 풀기 (${wrongCount}문제)</button>` : `<button id="backStageBtn" class="btn btn-secondary">단계 선택으로</button>`}
       </div>
     </section>
   `;
@@ -1319,7 +1320,10 @@ function renderResult() {
   if (retryBtn) {
     retryBtn.addEventListener('click', () => startRetryRound());
   }
-  document.getElementById('backStageBtn').addEventListener('click', renderStageSelect);
+  const backStageBtn = document.getElementById('backStageBtn');
+  if (backStageBtn) {
+    backStageBtn.addEventListener('click', renderStageSelect);
+  }
 }
 
 function startRetryRound() {
